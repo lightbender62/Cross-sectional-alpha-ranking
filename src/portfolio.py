@@ -39,13 +39,16 @@ def select_quantiles(
 
     n = len(ranks)
 
-    top_n = max(1, int(n * top_pct))
-    bottom_n = max(1, int(n * bottom_pct))
+    # Small epsilon so float error (e.g. 0.29 * 100 = 28.999999999999996) does not truncate down.
+    top_n = max(1, int(n * top_pct + 1e-9))
+    bottom_n = max(1, int(n * bottom_pct + 1e-9))
 
-    assert top_n + bottom_n <= n, (
-        "top and bottom quantile selections overlap; "
-        "reduce top_pct and/or bottom_pct"
-    )
+    # ValueError, not assert: the backtester relies on this to skip a date, and asserts vanish under python -O.
+    if top_n + bottom_n > n:
+        raise ValueError(
+            "top and bottom quantile selections overlap; "
+            "reduce top_pct and/or bottom_pct"
+        )
 
     long_names = ranks.nsmallest(top_n).index.tolist()
     short_names = ranks.nlargest(bottom_n).index.tolist()

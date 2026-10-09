@@ -158,7 +158,7 @@ def estimate_portfolio_vol(
     portfolio_returns = returns.mul(
         aligned_weights,
         axis=1,
-    ).sum(axis=1)
+    ).sum(axis=1, min_count=1)
 
     portfolio_returns = (
         portfolio_returns
