@@ -1416,3 +1416,33 @@ def test_run_backtest_risk_hook_receives_only_pre_t_returns():
     )
 
     assert len(observed) == 2
+
+def test_run_backtest_skips_date_when_all_scores_are_nan():
+    scores = make_scores()
+
+    scores.loc[
+        scores["date"] == pd.Timestamp("2023-02-28"),
+        "score",
+    ] = np.nan
+
+    result = run_backtest(
+        prices=make_monthly_prices(),
+        scores=scores,
+        rebalance_dates=pd.DatetimeIndex(
+            [
+                "2023-01-31",
+                "2023-02-28",
+                "2023-03-31",
+            ]
+        ),
+        top_pct=0.25,
+        bottom_pct=0.25,
+    )
+
+    assert len(result.periods) == 1
+    assert len(result.skipped) == 1
+
+    assert (
+        result.skipped.iloc[0]["date"]
+        == pd.Timestamp("2023-02-28")
+    )

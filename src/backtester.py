@@ -491,17 +491,16 @@ def run_backtest(
             )
             continue
 
-        clean_scores, n_dropped = validate_scores(
-            ds.set_index("ticker")["score"]
-        )
-
-        # Rank
-        ranks = rank_cross_sectional(
-            clean_scores
-        )
-
-        # Selecting tails
+        # A bad cross-section is logged and skipped, not fatal
         try:
+            clean_scores, n_dropped = validate_scores(
+                ds.set_index("ticker")["score"]
+            )
+
+            ranks = rank_cross_sectional(
+                clean_scores
+            )
+
             long_names, short_names = select_quantiles(
                 ranks,
                 top_pct,
