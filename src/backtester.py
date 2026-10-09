@@ -806,16 +806,18 @@ def summarize_performance(
     n = len(r)
 
     # Calendar months spanned, so skipped months still count toward elapsed time.
-    d = pd.to_datetime(periods["date"])
+    # Falls back to the row count when there is no date column.
+    if periods_per_year == 12 and "date" in periods.columns:
+        d = pd.to_datetime(periods["date"])
 
-    n_span = (
-        (d.iloc[-1].year - d.iloc[0].year) * 12
-        + d.iloc[-1].month
-        - d.iloc[0].month
-        + 1
-        if periods_per_year == 12
-        else n
-    )
+        n_span = (
+            (d.iloc[-1].year - d.iloc[0].year) * 12
+            + d.iloc[-1].month
+            - d.iloc[0].month
+            + 1
+        )
+    else:
+        n_span = n
 
     nav_final = float(
         periods["nav"].iloc[-1]

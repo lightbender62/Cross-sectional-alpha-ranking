@@ -183,13 +183,30 @@ def test_select_quantiles_selects_at_least_one_name_per_leg():
     assert len(short_names) == 1
 
 
+def test_select_quantiles_is_robust_to_float_error():
+    # 0.29 * 100 = 28.999999999999996, which int() alone would floor to 28
+    ranks = pd.Series(
+        np.arange(1, 101),
+        index=[f"STOCK_{i:03d}" for i in range(100)],
+    )
+
+    long_names, short_names = select_quantiles(
+        ranks,
+        top_pct=0.29,
+        bottom_pct=0.29,
+    )
+
+    assert len(long_names) == 29
+    assert len(short_names) == 29
+
+
 def test_select_quantiles_rejects_overlapping_quantiles():
     ranks = pd.Series(
         np.arange(1, 11),
         index=[f"STOCK_{i:03d}" for i in range(10)],
     )
 
-    with pytest.raises(AssertionError):
+    with pytest.raises(ValueError):
         select_quantiles(
             ranks,
             top_pct=0.60,

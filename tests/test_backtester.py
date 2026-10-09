@@ -301,6 +301,30 @@ def test_compute_turnover_treats_missing_names_as_zero():
     )
 
 
+def test_compute_turnover_counts_names_outside_universe():
+    current = pd.Series(
+        [0.50],
+        index=["A"],
+    )
+
+    # C was held before but is no longer in the priced universe.
+    previous = pd.Series(
+        [-0.50],
+        index=["C"],
+    )
+
+    turnover = compute_turnover(
+        current,
+        previous,
+        ["A"],
+    )
+
+    assert np.isclose(
+        turnover,
+        1.0,
+    )
+
+
 # ---------------------------------------------------------------------------
 # compute_transaction_cost
 # ---------------------------------------------------------------------------
@@ -485,6 +509,33 @@ def test_summarize_performance_max_drawdown():
         -0.20,
     )
 
+
+def test_summarize_performance_max_drawdown_counts_first_period_loss():
+    periods = pd.DataFrame(
+        {
+            "net_return": [-0.10, 0.10],
+            "nav": [0.90, 0.99],
+            "rank_ic": [0.1, 0.1],
+            "turnover": [1.0, 1.0],
+            "transaction_cost": [0.0, 0.0],
+            "long_return": [0.0, 0.0],
+            "short_return": [0.0, 0.0],
+            "benchmark_return": [0.0, 0.0],
+            "active_return": [0.0, 0.0],
+        }
+    )
+
+    summary = summarize_performance(
+        periods
+    )
+
+    # Measured from the starting NAV of 1.0, not from the first period's NAV.
+    assert np.isclose(
+        summary["max_drawdown"],
+        -0.10,
+    )
+
+
 def test_summarize_by_window_returns_requested_windows():
     periods = pd.DataFrame(
         {
@@ -562,6 +613,7 @@ def test_run_backtest_produces_expected_period_columns():
         "n_short",
         "n_scored",
         "n_dropped",
+        "n_missing_returns",
     }
 
     assert expected_columns.issubset(
@@ -706,13 +758,105 @@ def test_run_backtest_nav_compounds_net_returns():
     )
 
 
-def test_run_backtest_default_benchmark_is_equal_weight():
+def test_run_backtest_default_benchmark_is_scaled_by_target_net():
+    dates = pd.to_datetime(
+        [
+            "2023-01-31",
+            "2023-02-28",
+            "2023-03-31",
+        ]
+    )
+
+    closes = {
+        "A": [100.0, 120.0, 132.0],
+        "B": [100.0, 110.0, 115.5],
+        "C": [100.0, 100.0, 95.0],
+        "D": [100.0, 90.0, 81.0],
+    }
+
+    prices = pd.DataFrame(
+        [
+            {"date": d, "ticker": t, "close": c}
+            for t, values in closes.items()
+            for d, c in zip(dates, values)
+        ]
+    )
+
+    kwargs = dict(
+        prices=prices,
+        scores=make_scores(),
+        rebalance_dates=pd.DatetimeIndex(dates),
+        top_pct=0.25,
+        bottom_pct=0.25,
+        transaction_cost_rate=0.0,
+    )
+
+    neutral = run_backtest(**kwargs)
+    tilted = run_backtest(**kwargs, target_net=0.2)
+
+    # Equal-weight Jan -> Feb return = (20% + 10% + 0% - 10%) / 4 = 5%.
+    # A dollar-neutral book has no market exposure, so its benchmark is 0.
+    assert np.isclose(
+        neutral.periods.iloc[0]["benchmark_return"],
+        0.0,
+    )
+
+    assert np.isclose(
+        tilted.periods.iloc[0]["benchmark_return"],
+        0.2 * 0.05,
+    )
+
+
+def test_run_backtest_active_return_is_net_return_minus_benchmark():
+    benchmark = pd.Series(
+        [0.03, 0.01],
+        index=pd.DatetimeIndex(
+            [
+                "2023-01-31",
+                "2023-02-28",
+            ]
+        ),
+    )
+
+    result = run_backtest(
+        prices=make_monthly_prices(),
+        scores=make_scores(),
+        rebalance_dates=pd.DatetimeIndex(
+            [
+                "2023-01-31",
+                "2023-02-28",
+                "2023-03-31",
+            ]
+        ),
+        benchmark_returns=benchmark,
+        top_pct=0.25,
+        bottom_pct=0.25,
+        transaction_cost_rate=0.0005,
+    )
+
+    periods = result.periods
+
+    assert np.allclose(
+        periods["active_return"],
+        periods["net_return"]
+        - periods["benchmark_return"],
+    )
+
+
+def test_run_backtest_counts_held_names_with_missing_returns():
     prices = make_monthly_prices()
-    scores = make_scores()
+
+    # D is the short name. Dropping its February price makes its January return missing.
+    prices = prices[
+        ~(
+            (prices["ticker"] == "D")
+            & (prices["date"] == pd.Timestamp("2023-02-28"))
+        )
+    ]
 
     result = run_backtest(
         prices=prices,
-        scores=scores,
+        scores=make_scores(),
         rebalance_dates=pd.DatetimeIndex(
             [
                 "2023-01-31",
@@ -725,10 +869,14 @@ def test_run_backtest_default_benchmark_is_equal_weight():
         transaction_cost_rate=0.0,
     )
 
-    # +10%, +5%, -5%, -10% -> equal-weight benchmark = 0%.
+    first = result.periods.iloc[0]
+
+    # The missing return counts as 0%, so only A's 50% * 10% contributes.
+    assert first["n_missing_returns"] == 1
+    assert first["n_short"] == 0
     assert np.isclose(
-        result.periods.iloc[0]["benchmark_return"],
-        0.0,
+        first["portfolio_return"],
+        0.05,
     )
 
 

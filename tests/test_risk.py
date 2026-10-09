@@ -529,3 +529,54 @@ def test_apply_risk_controls_reduces_on_drawdown():
     assert result.abs().sum() <= (
         capped_before_dd.abs().sum() + 1e-12
     )
+
+
+def test_estimate_portfolio_vol_ignores_all_nan_rows():
+    rng = np.random.default_rng(6)
+
+    returns = pd.DataFrame(
+        rng.normal(
+            0,
+            0.01,
+            size=(60, 2),
+        ),
+        columns=["A", "B"],
+    )
+
+    # pct_change leaves the first row all NaN; it must not count as a 0% day.
+    padded = pd.concat(
+        [
+            pd.DataFrame(
+                [[np.nan, np.nan]],
+                columns=["A", "B"],
+            ),
+            returns,
+        ],
+        ignore_index=True,
+    )
+
+    weights = pd.Series(
+        {
+            "A": 0.5,
+            "B": -0.5,
+        }
+    )
+
+    clean = estimate_portfolio_vol(
+        weights,
+        returns,
+        lookback=100,
+        min_obs=20,
+    )
+
+    with_nan_row = estimate_portfolio_vol(
+        weights,
+        padded,
+        lookback=100,
+        min_obs=20,
+    )
+
+    assert np.isclose(
+        clean,
+        with_nan_row,
+    )
